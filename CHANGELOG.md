@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/D1G1R/EE471_FinalProject/compare/v1.0.1...v1.0.2) (2026-06-20)
+
+
+### Bug Fixes
+
+* resolve lint warnings and deprecated API usage ([0ef1a2b](https://github.com/D1G1R/EE471_FinalProject/commit/0ef1a2be405718f9350e50636d20f2709504224d))
+
 ## [1.0.1](https://github.com/D1G1R/EE471_FinalProject/compare/v1.0.0...v1.0.1) (2026-06-20)
 
 

@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/D1G1R/EE471_FinalProject/compare/v1.0.2...v1.0.3) (2026-06-20)
+
+
+### Bug Fixes
+
+* fix ([31bff3a](https://github.com/D1G1R/EE471_FinalProject/commit/31bff3a22153bff26e72089729be2a8f9e1d3a85))
+
 ## [1.0.2](https://github.com/D1G1R/EE471_FinalProject/compare/v1.0.1...v1.0.2) (2026-06-20)
 
 

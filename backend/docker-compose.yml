@@ -1,11 +1,13 @@
+# backend/docker-compose.yml
+version: "3.8"
+
 services:
-  backend:
+  web:
     build: .
     ports:
       - "8000:8000"
-    environment:
-      DJANGO_SETTINGS_MODULE: voice_controller.settings
-      DJANGO_DEBUG: "1"
-      DJANGO_SECRET_KEY: change-me
+    env_file:
+      - .env
     volumes:
       - .:/app
+    command: python manage.py runserver 0.0.0.0:8000

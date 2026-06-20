@@ -65,4 +65,7 @@ def transcribe_audio(audio_bytes: bytes, sample_rate: int = 16000) -> dict:
                 "error": f"Hata: {result.reason}",
             }
     finally:
-        os.unlink(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except PermissionError:
+            pass  # Windows'ta dosya meşgul olabilir, sorun değil

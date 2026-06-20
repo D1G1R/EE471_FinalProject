@@ -1,0 +1,64 @@
+# Environment files
+.env
+backend/.env
+mobile/.env
+
+# Python / Django
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.sqlite3
+*.log
+*.pot
+*.mo
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+backend/.venv/
+backend/venv/
+
+# Django / Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Django static/media and local DBs
+backend/db.sqlite3
+backend/staticfiles/
+backend/media/
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub/
+pubspec.lock
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+mobile/.dart_tool/
+mobile/build/
+mobile/.pub/
+mobile/.packages
+mobile/pubspec.lock
+
+# Android / iOS / desktop generated folders
+android/.gradle/
+android/local.properties
+ios/Pods/
+ios/.symlinks/
+macos/Pods/
+linux/flutter/ephemeral/
+windows/flutter/ephemeral/
+
+# IDE / editor
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db

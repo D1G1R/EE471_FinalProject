@@ -1,0 +1,11 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DJANGO_SETTINGS_MODULE: voice_controller.settings
+      DJANGO_DEBUG: "1"
+      DJANGO_SECRET_KEY: change-me
+    volumes:
+      - .:/app

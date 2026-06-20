@@ -18,11 +18,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final ApiService _api = ApiService();
   final AudioRecorder _recorder = AudioRecorder();
 
-  bool _isRecording = false;
+  bool _isListening = false;
   bool _isProcessing = false;
   bool _isConnected = false;
 
-  String _statusText = 'Spotify\'a bağlanın ve konuşmaya başlayın';
+  String _statusText = "Spotify'a bağlanın ve dinlemeyi başlatın";
   String _recognizedText = '';
   String _currentTrack = '';
   String _currentArtist = '';
@@ -42,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    _isListening = false;
     _pulseController.dispose();
     _recorder.dispose();
     super.dispose();
@@ -56,15 +57,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         if (track != null) {
           _currentTrack = track['name'] ?? '';
           _currentArtist = track['artist'] ?? '';
-          _statusText = 'Bağlandı — komut vermek için basılı tutun';
+          _statusText = 'Bağlandı — dinlemeyi başlatın';
         } else {
-          _statusText = 'Bağlandı — Spotify\'da bir şarkı açın';
+          _statusText = "Bağlandı — Spotify'da bir şarkı açın";
         }
       });
     } catch (e) {
       setState(() {
         _isConnected = false;
-        _statusText = 'Spotify\'a bağlanın';
+        _statusText = "Spotify'a bağlanın";
       });
     }
   }
@@ -80,74 +81,98 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  Future<void> _startRecording() async {
-    final micStatus = await Permission.microphone.request();
-    if (!micStatus.isGranted) {
-      _showSnackBar('Mikrofon izni gerekli!');
-      return;
+  Future<void> _toggleListening() async {
+    if (_isListening) {
+      // Dinlemeyi durdur
+      setState(() {
+        _isListening = false;
+        _statusText = 'Dinleme durduruldu';
+      });
+      _pulseController.stop();
+      _pulseController.reset();
+      // Kayıt devam ediyorsa durdur
+      if (await _recorder.isRecording()) {
+        await _recorder.stop();
+      }
+    } else {
+      // Dinlemeye başla
+      final micStatus = await Permission.microphone.request();
+      if (!micStatus.isGranted) {
+        _showSnackBar('Mikrofon izni gerekli!');
+        return;
+      }
+      setState(() {
+        _isListening = true;
+        _statusText = 'Dinleniyor...';
+      });
+      _pulseController.repeat(reverse: true);
+      _listenLoop();
     }
-
-    final dir = await getTemporaryDirectory();
-    final filePath = '${dir.path}/voice_command.wav';
-
-    await _recorder.start(
-      const RecordConfig(
-        encoder: AudioEncoder.wav,
-        sampleRate: 16000,
-        numChannels: 1,
-        bitRate: 256000,
-      ),
-      path: filePath,
-    );
-
-    setState(() {
-      _isRecording = true;
-      _statusText = 'Dinliyorum...';
-      _recognizedText = '';
-      _lastIntent = '';
-    });
-    _pulseController.repeat(reverse: true);
   }
 
-  Future<void> _stopRecordingAndProcess() async {
-    final path = await _recorder.stop();
-    _pulseController.stop();
-    _pulseController.reset();
+  Future<void> _listenLoop() async {
+    while (_isListening) {
+      try {
+        final dir = await getTemporaryDirectory();
+        final filePath = '${dir.path}/voice_command_${DateTime.now().millisecondsSinceEpoch}.wav';
 
-    if (path == null) {
-      setState(() {
-        _isRecording = false;
-        _statusText = 'Kayıt alınamadı.';
-      });
-      return;
-    }
+        // 3 saniye kaydet
+        await _recorder.start(
+          RecordConfig(
+            encoder: AudioEncoder.wav,
+            sampleRate: 16000,
+            numChannels: 1,
+            bitRate: 256000,
+          ),
+          path: filePath,
+        );
 
-    setState(() {
-      _isRecording = false;
-      _isProcessing = true;
-      _statusText = 'İşleniyor...';
-    });
+        await Future.delayed(const Duration(seconds: 3));
 
-    try {
-      final result = await _api.sendVoiceCommand(path);
+        // Dinleme kapatıldıysa çık
+        if (!_isListening) {
+          if (await _recorder.isRecording()) {
+            await _recorder.stop();
+          }
+          break;
+        }
 
-      setState(() {
-        _isProcessing = false;
-        _recognizedText = result['recognized_text'] ?? '';
-        _lastIntent = result['intent'] ?? '';
+        final path = await _recorder.stop();
+        if (path == null) continue;
+
+        // İşleniyor göster ama dinlemeye devam et
+        setState(() {
+          _isProcessing = true;
+        });
+
+        final result = await _api.sendVoiceCommand(path);
+
+        final recognizedText = result['recognized_text'] ?? '';
+        final intent = result['intent'] ?? '';
         final success = result['result']?['success'] ?? false;
-        _statusText = success
-            ? 'Komut çalıştırıldı!'
-            : result['result']?['message'] ?? 'Bir hata oluştu.';
-      });
 
-      // Şarkı bilgisini güncelle
-      _checkStatus();
-    } catch (e) {
-      setState(() {
-        _isProcessing = false;
-        _statusText = 'Hata: $e';
-      });
+        // Boş veya anlaşılamayan komutları atla
+        if (recognizedText.isNotEmpty && intent != 'unknown') {
+          setState(() {
+            _recognizedText = recognizedText;
+            _lastIntent = intent;
+            _statusText = success ? 'Komut çalıştırıldı!' : (result['result']?['message'] ?? 'Hata');
+          });
+          _checkStatus(); // Şarkı bilgisini güncelle
+        }
+
+        setState(() {
+          _isProcessing = false;
+        });
+
+      } catch (e) {
+        setState(() {
+          _isProcessing = false;
+          _statusText = 'Dinleniyor...';
+        });
+        // Kısa bekle ve tekrar dene
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
     }
   }
 
@@ -188,7 +213,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               color: _isConnected ? green : Colors.grey,
             ),
             onPressed: _isConnected ? _checkStatus : _connectSpotify,
-            tooltip: _isConnected ? 'Durumu güncelle' : 'Spotify\'a bağlan',
+            tooltip: _isConnected ? 'Durumu güncelle' : "Spotify'a bağlan",
           ),
         ],
       ),
@@ -230,6 +255,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
             const SizedBox(height: 12),
 
+            // İşleniyor göstergesi
+            if (_isProcessing)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: green,
+                  ),
+                ),
+              ),
+
             // Tanınan metin ve intent
             if (_recognizedText.isNotEmpty) ...[
               Container(
@@ -264,16 +303,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
             const Spacer(),
 
-            // Büyük mikrofon butonu
+            // Büyük Start/Stop butonu
             GestureDetector(
-              onLongPressStart: _isConnected && !_isProcessing
-                  ? (_) => _startRecording()
-                  : null,
-              onLongPressEnd: _isRecording ? (_) => _stopRecordingAndProcess() : null,
+              onTap: _isConnected ? _toggleListening : null,
               child: AnimatedBuilder(
                 animation: _pulseController,
                 builder: (context, child) {
-                  final scale = _isRecording ? 1.0 + (_pulseController.value * 0.15) : 1.0;
+                  final scale = _isListening ? 1.0 + (_pulseController.value * 0.15) : 1.0;
                   return Transform.scale(
                     scale: scale,
                     child: Container(
@@ -281,17 +317,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       height: 120,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: _isRecording
-                            ? green
-                            : _isProcessing
-                                ? Colors.orange
-                                : _isConnected
-                                    ? green.withOpacity(0.2)
-                                    : Colors.grey[800],
-                        boxShadow: _isRecording
+                        color: _isListening
+                            ? Colors.red
+                            : _isConnected
+                                ? green.withOpacity(0.2)
+                                : Colors.grey[800],
+                        boxShadow: _isListening
                             ? [
                                 BoxShadow(
-                                  color: green.withOpacity(0.4),
+                                  color: Colors.red.withOpacity(0.4),
                                   blurRadius: 30,
                                   spreadRadius: 5,
                                 ),
@@ -299,13 +333,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             : null,
                       ),
                       child: Icon(
-                        _isRecording
-                            ? Icons.mic
-                            : _isProcessing
-                                ? Icons.hourglass_top
-                                : Icons.mic_none,
+                        _isListening ? Icons.stop : Icons.mic,
                         size: 48,
-                        color: _isRecording ? Colors.black : Colors.white,
+                        color: Colors.white,
                       ),
                     ),
                   );
@@ -315,9 +345,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
             const SizedBox(height: 16),
             Text(
-              _isConnected
-                  ? 'Basılı tutarak komut verin'
-                  : 'Önce Spotify\'a bağlanın →',
+              _isListening
+                  ? 'Durdurmak için dokunun'
+                  : _isConnected
+                      ? 'Dinlemeyi başlatmak için dokunun'
+                      : "Önce Spotify'a bağlanın →",
               style: TextStyle(color: Colors.grey[500], fontSize: 14),
             ),
 

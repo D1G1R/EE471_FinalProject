@@ -275,7 +275,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 margin: const EdgeInsets.symmetric(horizontal: 32),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
+                  color: Colors.white.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
@@ -292,7 +292,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       const SizedBox(height: 8),
                       Chip(
                         label: Text(_intentToTurkish(_lastIntent)),
-                        backgroundColor: green.withOpacity(0.2),
+                        backgroundColor: green.withValues(alpha: 0.2),
                         labelStyle: TextStyle(color: green),
                       ),
                     ],
@@ -320,12 +320,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         color: _isListening
                             ? Colors.red
                             : _isConnected
-                                ? green.withOpacity(0.2)
+                                ? green.withValues(alpha: 0.2)
                                 : Colors.grey[800],
                         boxShadow: _isListening
                             ? [
                                 BoxShadow(
-                                  color: Colors.red.withOpacity(0.4),
+                                  color: Colors.red.withValues(alpha: 0.4),
                                   blurRadius: 30,
                                   spreadRadius: 5,
                                 ),

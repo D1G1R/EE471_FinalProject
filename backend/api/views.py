@@ -3,7 +3,7 @@ from rest_framework.decorators import api_view, parser_classes
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
-from django.shortcuts import redirect
+
 
 from .speech_service import transcribe_audio
 from .intent_parser import parse_intent
@@ -11,7 +11,6 @@ from .spotify_client import (
     SpotifyClient,
     get_auth_url,
     exchange_code_for_token,
-    refresh_access_token,
 )
 
 # Basitlik için token'ları bellekte tutuyoruz.

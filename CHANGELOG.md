@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/D1G1R/EE471_FinalProject/compare/v1.0.0...v1.0.1) (2026-06-20)
+
+
+### Bug Fixes
+
+* resolve flake8 lint errors and update flutter CI version ([7bf5c9b](https://github.com/D1G1R/EE471_FinalProject/commit/7bf5c9b9fa22770b54ab992538af05b9607af3eb))
+
 # 1.0.0 (2026-06-20)
 
 

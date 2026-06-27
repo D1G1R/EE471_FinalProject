@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/D1G1R/EE471_FinalProject/compare/v1.1.0...v1.1.1) (2026-06-27)
+
+
+### Bug Fixes
+
+* lines cleaned ([e8a120f](https://github.com/D1G1R/EE471_FinalProject/commit/e8a120fd3375485627f54f1a1ae79330f16c6501))
+
 # [1.1.0](https://github.com/D1G1R/EE471_FinalProject/compare/v1.0.3...v1.1.0) (2026-06-27)
 
 

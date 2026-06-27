@@ -18,6 +18,7 @@ MUSIC_GENRES = {
     "türkçe pop", "türkçe rock", "arabesk", "halk müziği",
 }
 
+
 class SpotifyClient:
     """Spotify Web API ile etkileşim kuran istemci sınıfı."""
 

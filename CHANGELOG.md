@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/D1G1R/EE471_FinalProject/compare/v1.0.3...v1.1.0) (2026-06-27)
+
+
+### Features
+
+* Search music & pytorch model ([aa5860a](https://github.com/D1G1R/EE471_FinalProject/commit/aa5860acc39650a45e4c8415cee19c951ee9e4c5))
+
 ## [1.0.3](https://github.com/D1G1R/EE471_FinalProject/compare/v1.0.2...v1.0.3) (2026-06-20)
 
 

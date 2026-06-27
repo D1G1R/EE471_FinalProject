@@ -1,6 +1,8 @@
 // lib/screens/home_screen.dart
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
@@ -14,13 +16,14 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final ApiService _api = ApiService();
   final AudioRecorder _recorder = AudioRecorder();
 
   bool _isListening = false;
   bool _isProcessing = false;
   bool _isConnected = false;
+  bool _isButtonPressed = false;
 
   String _statusText = "Spotify'a bağlanın ve dinlemeyi başlatın";
   String _recognizedText = '';
@@ -28,15 +31,45 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   String _currentArtist = '';
   String _lastIntent = '';
 
+  // Animasyon controller'ları
   late AnimationController _pulseController;
+  late AnimationController _waveController;
+  late AnimationController _buttonScaleController;
+  late AnimationController _successController;
+
+  late Animation<double> _buttonScaleAnimation;
+  late Animation<double> _successAnimation;
 
   @override
   void initState() {
     super.initState();
+
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 1500),
     );
+
+    _waveController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    );
+
+    _buttonScaleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 150),
+    );
+    _buttonScaleAnimation = Tween<double>(begin: 1.0, end: 0.88).animate(
+      CurvedAnimation(parent: _buttonScaleController, curve: Curves.easeInOut),
+    );
+
+    _successController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _successAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _successController, curve: Curves.elasticOut),
+    );
+
     _checkStatus();
   }
 
@@ -44,6 +77,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void dispose() {
     _isListening = false;
     _pulseController.dispose();
+    _waveController.dispose();
+    _buttonScaleController.dispose();
+    _successController.dispose();
     _recorder.dispose();
     super.dispose();
   }
@@ -82,20 +118,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _toggleListening() async {
+    // Buton basma animasyonu
+    _buttonScaleController.forward().then((_) {
+      _buttonScaleController.reverse();
+    });
+    HapticFeedback.mediumImpact();
+
     if (_isListening) {
-      // Dinlemeyi durdur
       setState(() {
         _isListening = false;
         _statusText = 'Dinleme durduruldu';
       });
       _pulseController.stop();
       _pulseController.reset();
-      // Kayıt devam ediyorsa durdur
+      _waveController.stop();
+      _waveController.reset();
       if (await _recorder.isRecording()) {
         await _recorder.stop();
       }
     } else {
-      // Dinlemeye başla
       final micStatus = await Permission.microphone.request();
       if (!micStatus.isGranted) {
         _showSnackBar('Mikrofon izni gerekli!');
@@ -104,8 +145,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       setState(() {
         _isListening = true;
         _statusText = 'Dinleniyor...';
+        _recognizedText = '';
+        _lastIntent = '';
       });
       _pulseController.repeat(reverse: true);
+      _waveController.repeat();
       _listenLoop();
     }
   }
@@ -116,7 +160,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         final dir = await getTemporaryDirectory();
         final filePath = '${dir.path}/voice_command_${DateTime.now().millisecondsSinceEpoch}.wav';
 
-        // 3 saniye kaydet
         await _recorder.start(
           RecordConfig(
             encoder: AudioEncoder.wav,
@@ -129,7 +172,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
         await Future.delayed(const Duration(seconds: 3));
 
-        // Dinleme kapatıldıysa çık
         if (!_isListening) {
           if (await _recorder.isRecording()) {
             await _recorder.stop();
@@ -140,7 +182,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         final path = await _recorder.stop();
         if (path == null) continue;
 
-        // İşleniyor göster ama dinlemeye devam et
         setState(() {
           _isProcessing = true;
         });
@@ -151,26 +192,29 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         final intent = result['intent'] ?? '';
         final success = result['result']?['success'] ?? false;
 
-        // Boş veya anlaşılamayan komutları atla
         if (recognizedText.isNotEmpty && intent != 'unknown') {
           setState(() {
             _recognizedText = recognizedText;
             _lastIntent = intent;
             _statusText = success ? 'Komut çalıştırıldı!' : (result['result']?['message'] ?? 'Hata');
           });
-          _checkStatus(); // Şarkı bilgisini güncelle
+
+          if (success) {
+            _successController.forward(from: 0);
+            HapticFeedback.lightImpact();
+          }
+
+          _checkStatus();
         }
 
         setState(() {
           _isProcessing = false;
         });
-
       } catch (e) {
         setState(() {
           _isProcessing = false;
           _statusText = 'Dinleniyor...';
         });
-        // Kısa bekle ve tekrar dene
         await Future.delayed(const Duration(milliseconds: 500));
       }
     }
@@ -178,32 +222,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
   }
 
   String _intentToTurkish(String intent) {
     const map = {
-      'play': 'Çal',
-      'pause': 'Duraklat',
-      'next': 'Sonraki',
-      'previous': 'Önceki',
-      'volume_up': 'Sesi Aç',
-      'volume_down': 'Sesi Kıs',
-      'volume_set': 'Ses Ayarla',
-      'current_track': 'Şarkı Bilgisi',
-      'unknown': 'Anlaşılamadı',
+      'play': '▶ Çal',
+      'pause': '⏸ Duraklat',
+      'next': '⏭ Sonraki',
+      'previous': '⏮ Önceki',
+      'volume_up': '🔊 Sesi Aç',
+      'volume_down': '🔉 Sesi Kıs',
+      'volume_set': '🔈 Ses Ayarla',
+      'current_track': '🎵 Şarkı Bilgisi',
+      'unknown': '❓ Anlaşılamadı',
     };
     return map[intent] ?? intent;
   }
 
   @override
   Widget build(BuildContext context) {
-    final green = Theme.of(context).colorScheme.primary;
+    const green = Color(0xFF1DB954);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Spotify Voice Controller'),
+        title: const Text(
+          'Spotify Voice Controller',
+          style: TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.5),
+        ),
+        centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
@@ -218,159 +270,334 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 20),
+        child: Center(
+          child: Column(
+            children: [
+              const SizedBox(height: 24),
 
-            // Şu an çalan şarkı
-            if (_currentTrack.isNotEmpty) ...[
-              Icon(Icons.music_note, color: green, size: 32),
-              const SizedBox(height: 8),
-              Text(
-                _currentTrack,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              Text(
-                _currentArtist,
-                style: TextStyle(fontSize: 16, color: Colors.grey[400]),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-            ],
+              // Şu an çalan şarkı
+              if (_currentTrack.isNotEmpty)
+                _buildNowPlaying(green),
 
-            // Durum mesajı
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                _statusText,
-                style: TextStyle(fontSize: 16, color: Colors.grey[300]),
-                textAlign: TextAlign.center,
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // İşleniyor göstergesi
-            if (_isProcessing)
+              // Durum mesajı
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: green,
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: Text(
+                    _statusText,
+                    key: ValueKey(_statusText),
+                    style: TextStyle(fontSize: 15, color: Colors.grey[400]),
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ),
 
-            // Tanınan metin ve intent
-            if (_recognizedText.isNotEmpty) ...[
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 32),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      '"$_recognizedText"',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontStyle: FontStyle.italic,
-                        color: Colors.white70,
-                      ),
+              // İşleniyor göstergesi
+              AnimatedOpacity(
+                opacity: _isProcessing ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: green,
                     ),
-                    if (_lastIntent.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Chip(
-                        label: Text(_intentToTurkish(_lastIntent)),
-                        backgroundColor: green.withValues(alpha: 0.2),
-                        labelStyle: TextStyle(color: green),
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
               ),
-            ],
 
-            const Spacer(),
+              // Son komut bilgisi
+              if (_recognizedText.isNotEmpty)
+                _buildLastCommand(green),
 
-            // Büyük Start/Stop butonu
-            GestureDetector(
-              onTap: _isConnected ? _toggleListening : null,
-              child: AnimatedBuilder(
-                animation: _pulseController,
-                builder: (context, child) {
-                  final scale = _isListening ? 1.0 + (_pulseController.value * 0.15) : 1.0;
-                  return Transform.scale(
-                    scale: scale,
-                    child: Container(
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _isListening
-                            ? Colors.red
-                            : _isConnected
-                                ? green.withValues(alpha: 0.2)
-                                : Colors.grey[800],
-                        boxShadow: _isListening
-                            ? [
-                                BoxShadow(
-                                  color: Colors.red.withValues(alpha: 0.4),
-                                  blurRadius: 30,
-                                  spreadRadius: 5,
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: Icon(
-                        _isListening ? Icons.stop : Icons.mic,
-                        size: 48,
-                        color: Colors.white,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
+              const Spacer(),
 
-            const SizedBox(height: 16),
-            Text(
-              _isListening
-                  ? 'Durdurmak için dokunun'
-                  : _isConnected
-                      ? 'Dinlemeyi başlatmak için dokunun'
-                      : "Önce Spotify'a bağlanın →",
-              style: TextStyle(color: Colors.grey[500], fontSize: 14),
-            ),
+              // Ses dalgası animasyonu
+              if (_isListening)
+                _buildSoundWaves(green),
 
-            // Spotify'a bağlan butonu
-            if (!_isConnected) ...[
+              const SizedBox(height: 20),
+
+              // Mikrofon butonu
+              _buildMicButton(green),
+
               const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _connectSpotify,
-                icon: const Icon(Icons.login),
-                label: const Text("Spotify'a Bağlan"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: green,
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+
+              // Alt yazı
+              Text(
+                _isListening
+                    ? 'Durdurmak için dokunun'
+                    : _isConnected
+                        ? 'Dinlemeyi başlatmak için dokunun'
+                        : "Önce Spotify'a bağlanın",
+                style: TextStyle(color: Colors.grey[600], fontSize: 13),
+              ),
+
+              // Spotify'a bağlan butonu
+              if (!_isConnected) ...[
+                const SizedBox(height: 20),
+                _buildConnectButton(green),
+              ],
+
+              const SizedBox(height: 40),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNowPlaying(Color green) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 400),
+      margin: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            green.withValues(alpha: 0.15),
+            green.withValues(alpha: 0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: green.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: green.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(Icons.music_note, color: green, size: 28),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _currentTrack,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _currentArtist,
+                  style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLastCommand(Color green) {
+    return ScaleTransition(
+      scale: _successAnimation.drive(Tween(begin: 0.95, end: 1.0)),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        child: Column(
+          children: [
+            Text(
+              '"$_recognizedText"',
+              style: const TextStyle(
+                fontSize: 15,
+                fontStyle: FontStyle.italic,
+                color: Colors.white70,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (_lastIntent.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: green.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _intentToTurkish(_lastIntent),
+                  style: TextStyle(color: green, fontSize: 13, fontWeight: FontWeight.w600),
                 ),
               ),
             ],
-
-            const SizedBox(height: 40),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSoundWaves(Color green) {
+    return AnimatedBuilder(
+      animation: _waveController,
+      builder: (context, child) {
+        return SizedBox(
+          height: 40,
+          width: 200,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(9, (index) {
+              final offset = index * 0.12;
+              final value = sin((_waveController.value + offset) * 2 * pi);
+              final height = 8.0 + (value.abs() * 28);
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 100),
+                margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                width: 4,
+                height: height,
+                decoration: BoxDecoration(
+                  color: green.withValues(alpha: 0.4 + (value.abs() * 0.6)),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              );
+            }),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMicButton(Color green) {
+    return GestureDetector(
+      onTapDown: _isConnected ? (_) {
+        setState(() => _isButtonPressed = true);
+        _buttonScaleController.forward();
+      } : null,
+      onTapUp: _isConnected ? (_) {
+        setState(() => _isButtonPressed = false);
+        _buttonScaleController.reverse();
+        _toggleListening();
+      } : null,
+      onTapCancel: () {
+        setState(() => _isButtonPressed = false);
+        _buttonScaleController.reverse();
+      },
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_pulseController, _buttonScaleController]),
+        builder: (context, child) {
+          final pulseScale = _isListening ? 1.0 + (_pulseController.value * 0.08) : 1.0;
+          final pressScale = _buttonScaleAnimation.value;
+          final totalScale = pulseScale * pressScale;
+
+          return Transform.scale(
+            scale: totalScale,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Dış halka (pulse efekti)
+                if (_isListening)
+                  AnimatedBuilder(
+                    animation: _pulseController,
+                    builder: (context, child) {
+                      return Container(
+                        width: 160 + (_pulseController.value * 20),
+                        height: 160 + (_pulseController.value * 20),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.red.withValues(alpha: 0.3 - (_pulseController.value * 0.3)),
+                            width: 2,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+
+                // İkinci halka
+                if (_isListening)
+                  AnimatedBuilder(
+                    animation: _pulseController,
+                    builder: (context, child) {
+                      return Container(
+                        width: 140 + (_pulseController.value * 10),
+                        height: 140 + (_pulseController.value * 10),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.red.withValues(alpha: 0.05),
+                        ),
+                      );
+                    },
+                  ),
+
+                // Ana buton
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _isListening
+                        ? Colors.red
+                        : _isConnected
+                            ? green
+                            : Colors.grey[800],
+                    boxShadow: [
+                      BoxShadow(
+                        color: (_isListening ? Colors.red : green).withValues(
+                          alpha: _isButtonPressed ? 0.1 : _isListening ? 0.5 : 0.3,
+                        ),
+                        blurRadius: _isButtonPressed ? 10 : _isListening ? 30 : 20,
+                        spreadRadius: _isButtonPressed ? 0 : _isListening ? 5 : 2,
+                      ),
+                    ],
+                  ),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    transitionBuilder: (child, animation) {
+                      return ScaleTransition(scale: animation, child: child);
+                    },
+                    child: Icon(
+                      _isListening ? Icons.stop_rounded : Icons.mic_rounded,
+                      key: ValueKey(_isListening),
+                      size: 48,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildConnectButton(Color green) {
+    return ElevatedButton.icon(
+      onPressed: _connectSpotify,
+      icon: const Icon(Icons.login_rounded),
+      label: const Text("Spotify'a Bağlan"),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: green,
+        foregroundColor: Colors.black,
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        elevation: 4,
+        shadowColor: green.withValues(alpha: 0.4),
       ),
     );
   }

@@ -1,9 +1,10 @@
 # api/views.py
+import json
+import os
 from rest_framework.decorators import api_view, parser_classes
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
-
 
 from .speech_service import transcribe_audio
 from .intent_parser import parse_intent
@@ -13,9 +14,20 @@ from .spotify_client import (
     exchange_code_for_token,
 )
 
-# Basitlik için token'ları bellekte tutuyoruz.
-# Production'da veritabanı veya Redis kullanılmalı.
-_tokens = {}
+TOKEN_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "spotify_tokens.json")
+
+
+def _load_tokens():
+    try:
+        with open(TOKEN_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_tokens(tokens):
+    with open(TOKEN_FILE, "w") as f:
+        json.dump(tokens, f)
 
 
 @api_view(["GET"])
@@ -41,8 +53,10 @@ def spotify_callback(request):
     token_data = exchange_code_for_token(code)
 
     if "access_token" in token_data:
-        _tokens["access_token"] = token_data["access_token"]
-        _tokens["refresh_token"] = token_data.get("refresh_token")
+        tokens = _load_tokens()
+        tokens["access_token"] = token_data["access_token"]
+        tokens["refresh_token"] = token_data.get("refresh_token")
+        _save_tokens(tokens)
         return Response({
             "success": True,
             "message": "Spotify bağlantısı başarılı!",
@@ -69,8 +83,8 @@ def voice_command(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # Token kontrolü
-    access_token = _tokens.get("access_token")
+    tokens = _load_tokens()
+    access_token = tokens.get("access_token")
     if not access_token:
         return Response(
             {"error": "Spotify bağlantısı yok. Önce /api/spotify/login/ ile giriş yapın."},
@@ -88,11 +102,13 @@ def voice_command(request):
         }, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
     recognized_text = stt_result["text"]
+    print(f"[STT] '{recognized_text}'")
 
     # 2. Metin → Intent (NLP)
     intent_result = parse_intent(recognized_text)
     intent = intent_result["intent"]
     params = intent_result["params"]
+    print(f"[INTENT] {intent} | {params}")
 
     # 3. Intent → Spotify API çağrısı
     spotify = SpotifyClient(access_token)
@@ -118,7 +134,8 @@ def text_command(request):
             {"error": "Metin gönderilmedi."}, status=status.HTTP_400_BAD_REQUEST
         )
 
-    access_token = _tokens.get("access_token")
+    tokens = _load_tokens()
+    access_token = tokens.get("access_token")
     if not access_token:
         return Response(
             {"error": "Spotify bağlantısı yok."},
@@ -140,7 +157,8 @@ def text_command(request):
 @api_view(["GET"])
 def current_status(request):
     """Spotify'daki mevcut durumu döndürür."""
-    access_token = _tokens.get("access_token")
+    tokens = _load_tokens()
+    access_token = tokens.get("access_token")
     if not access_token:
         return Response(
             {"error": "Spotify bağlantısı yok."},

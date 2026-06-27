@@ -2,6 +2,7 @@
 .env
 backend/.env
 mobile/.env
+spotify_tokens.json
 
 # Python / Django
 __pycache__/

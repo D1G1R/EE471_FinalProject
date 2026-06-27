@@ -1,4 +1,5 @@
 // lib/screens/home_screen.dart
+import 'dart:io';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -157,9 +158,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _listenLoop() async {
     while (_isListening) {
       try {
-        final dir = await getTemporaryDirectory();
-        final filePath = '${dir.path}/voice_command_${DateTime.now().millisecondsSinceEpoch}.wav';
+        // 1. ADIM: Sessizce dinle, ses gelene kadar bekle
+        setState(() => _statusText = 'Dinleniyor... (komut bekleniyor)');
 
+        final dir = await getTemporaryDirectory();
+        final filePath = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.wav';
+
+        // Kaydı başlat
         await _recorder.start(
           RecordConfig(
             encoder: AudioEncoder.wav,
@@ -170,20 +175,67 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           path: filePath,
         );
 
-        await Future.delayed(const Duration(seconds: 3));
+        // Ses seviyesini izle — konuşma başlayana kadar bekle
+        bool speechStarted = false;
+        int consecutiveSpeechFrames = 0;
+        int silenceAfterSpeech = 0;
+        const double speechThreshold = -20.0; // dB, bunun üstü konuşma (daha az hassas)
+        const int speechConfirmFrames = 3;     // 3 ardışık frame gerekli (sahte tetiklenmeyi önler)
+        const int silenceLimit = 6;            // 6 × 300ms = ~1.8 saniye sessizlik
+
+        while (_isListening) {
+          final amp = await _recorder.getAmplitude();
+          final double dbLevel = amp.current;
+
+          if (!speechStarted) {
+            // Henüz konuşma başlamadı — ses gelene kadar bekle
+            if (dbLevel > speechThreshold) {
+              consecutiveSpeechFrames++;
+              if (consecutiveSpeechFrames >= speechConfirmFrames) {
+                speechStarted = true;
+                silenceAfterSpeech = 0;
+                setState(() => _statusText = 'Konuşma algılandı...');
+              }
+            } else {
+              consecutiveSpeechFrames = 0; // ardışıklığı sıfırla
+            }
+          } else {
+            // Konuşma başlamış — sessizlik sayacı
+            if (dbLevel > speechThreshold) {
+              silenceAfterSpeech = 0; // hâlâ konuşuyor, sıfırla
+            } else {
+              silenceAfterSpeech++;
+              if (silenceAfterSpeech >= silenceLimit) {
+                // Yeterince sessizlik oldu, konuşma bitti
+                break;
+              }
+            }
+          }
+
+          // 30 saniye boyunca hiç konuşma yoksa döngüyü yenile
+          await Future.delayed(const Duration(milliseconds: 300));
+        }
 
         if (!_isListening) {
-          if (await _recorder.isRecording()) {
-            await _recorder.stop();
-          }
+          if (await _recorder.isRecording()) await _recorder.stop();
           break;
         }
 
         final path = await _recorder.stop();
         if (path == null) continue;
 
+        // Konuşma algılanmadıysa dosyayı atla
+        if (!speechStarted) continue;
+
+        // Dosya boyutu kontrolü
+        final file = File(path);
+        final fileSize = await file.length();
+        if (fileSize < 30000) continue;
+
+        // Backend'e gönder
         setState(() {
           _isProcessing = true;
+          _statusText = 'İşleniyor...';
         });
 
         final result = await _api.sendVoiceCommand(path);
@@ -196,7 +248,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           setState(() {
             _recognizedText = recognizedText;
             _lastIntent = intent;
-            _statusText = success ? 'Komut çalıştırıldı!' : (result['result']?['message'] ?? 'Hata');
+            _statusText = success
+                ? 'Komut çalıştırıldı!'
+                : (result['result']?['message'] ?? 'Hata');
           });
 
           if (success) {
@@ -207,9 +261,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _checkStatus();
         }
 
-        setState(() {
-          _isProcessing = false;
-        });
+        setState(() => _isProcessing = false);
+
       } catch (e) {
         setState(() {
           _isProcessing = false;
@@ -240,6 +293,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       'volume_down': '🔉 Sesi Kıs',
       'volume_set': '🔈 Ses Ayarla',
       'current_track': '🎵 Şarkı Bilgisi',
+      'search_and_play': '🔍 Şarkı Ara & Çal',
       'unknown': '❓ Anlaşılamadı',
     };
     return map[intent] ?? intent;

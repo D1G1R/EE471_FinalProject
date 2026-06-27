@@ -97,9 +97,10 @@ def voice_command(request):
 
     if not stt_result["success"]:
         return Response({
-            "step": "speech_to_text",
+            "recognized_text": "",
+            "intent": "none",
             "error": stt_result.get("error", "STT başarısız."),
-        }, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        }, status=status.HTTP_200_OK)
 
     recognized_text = stt_result["text"]
     print(f"[STT] '{recognized_text}'")
@@ -111,8 +112,16 @@ def voice_command(request):
     print(f"[INTENT] {intent} | {params}")
 
     # 3. Intent → Spotify API çağrısı
-    spotify = SpotifyClient(access_token)
+    spotify = SpotifyClient(
+        access_token,
+        refresh_token=tokens.get("refresh_token"),
+        on_token_refresh=lambda t: _save_tokens({**_load_tokens(), "access_token": t}),
+    )
     action_result = execute_intent(spotify, intent, params)
+
+    # Token yenilendiyse kaydet
+    if spotify.access_token != access_token:
+        _save_tokens({**_load_tokens(), "access_token": spotify.access_token})
 
     return Response({
         "recognized_text": recognized_text,
@@ -143,7 +152,12 @@ def text_command(request):
         )
 
     intent_result = parse_intent(text)
-    spotify = SpotifyClient(access_token)
+    tokens = _load_tokens()
+    spotify = SpotifyClient(
+        access_token,
+        refresh_token=tokens.get("refresh_token"),
+        on_token_refresh=lambda t: _save_tokens({**_load_tokens(), "access_token": t}),
+    )
     action_result = execute_intent(spotify, intent_result["intent"], intent_result["params"])
 
     return Response({
@@ -165,7 +179,12 @@ def current_status(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
-    spotify = SpotifyClient(access_token)
+    tokens = _load_tokens()
+    spotify = SpotifyClient(
+        access_token,
+        refresh_token=tokens.get("refresh_token"),
+        on_token_refresh=lambda t: _save_tokens({**_load_tokens(), "access_token": t}),
+    )
     track = spotify.current_track()
     playback = spotify.get_playback_state()
 
@@ -185,6 +204,7 @@ def execute_intent(spotify: SpotifyClient, intent: str, params: dict) -> dict:
         "volume_down": lambda: _adjust_volume(spotify, -15),
         "volume_set": lambda: spotify.set_volume(params.get("volume", 50)),
         "current_track": spotify.current_track,
+        "search_and_play": lambda: spotify.search_and_play(params.get("query", "")),
     }
 
     action = actions.get(intent)
